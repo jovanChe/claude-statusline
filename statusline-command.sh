@@ -161,7 +161,6 @@ GIT_VALUE=$'\033[38;2;186;230;253m'
 GIT_DIR=$'\033[38;2;147;197;253m'
 GIT_ICON=$'\033[38;2;56;189;248m'
 BLUE=$'\033[38;2;59;130;246m'
-LIGHT_BLUE=$'\033[38;2;147;197;253m'
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -216,13 +215,6 @@ if [ "$context_size" -ge 1000000 ] 2>/dev/null; then
     model_short="${model_short}/1M"
 fi
 
-# User first name (portable)
-if command -v id &>/dev/null && id -F &>/dev/null 2>&1; then
-    USER_FIRST=$(id -F | awk '{print $1}')
-else
-    USER_FIRST=$(whoami)
-fi
-
 # Context percentage
 raw_pct="${context_pct%%.*}"; [ -z "$raw_pct" ] && raw_pct=0
 pct_color=$(get_level_color "$raw_pct")
@@ -231,15 +223,11 @@ pct_color=$(get_level_color "$raw_pct")
 bar_compact=$(render_context_bar 20 "$raw_pct")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# OUTPUT — 2 lines
+# OUTPUT — 3 lines
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Line 1: User · Model · Project · Branch [· Agent/Worktree/Vim] ── Context bar
-printf "${SLATE_600}──${RESET} ${LIGHT_BLUE}%s${RESET} ${SLATE_600}·${RESET} ${CTX_ACCENT}%s${RESET} ${SLATE_600}·${RESET} ${GIT_DIR}%s${RESET}" "$USER_FIRST" "$model_short" "$dir_name"
-
-if [ -n "$session_name" ]; then
-    printf " ${SLATE_600}·${RESET} ${SLATE_400}%s${RESET}" "$session_name"
-fi
+# Line 1: Project · Branch [· Worktree/Agent/Vim] ── Context bar
+printf "${SLATE_600}──${RESET} ${GIT_DIR}%s${RESET}" "$dir_name"
 
 if [ "$is_git_repo" = "true" ]; then
     printf " ${SLATE_600}·${RESET} ${GIT_VALUE}%s${RESET}" "$branch"
@@ -258,7 +246,7 @@ if [ -n "$vim_mode" ]; then
 fi
 
 # Context bar + percentage + 200k warning
-printf " ${SLATE_600}──${RESET} ${CTX_PRIMARY}◉${RESET} %s ${pct_color}%s%%%%${RESET}" "$bar_compact" "$raw_pct"
+printf " ${SLATE_600}──${RESET} ${CTX_PRIMARY}◉${RESET} %s ${pct_color}%s%%${RESET}" "$bar_compact" "$raw_pct"
 
 if [ "$exceeds_200k" = "true" ]; then
     printf " ${ROSE}⚠${RESET}"
@@ -266,47 +254,79 @@ fi
 
 printf "\n"
 
-# Line 2: Rate limits (only if present) · Cost · Duration ── CC version
-printf "${SLATE_600}──${RESET}"
+# ─── Build line 2 into a buffer (no CC version — moved to line 3) ──────────
 
+line2=""
+line2+="${SLATE_600}──${RESET}"
 has_prev=false
 
 if [ "$has_rate_limits" = "true" ]; then
-    # 5-hour limit
     if [ -n "$usage_5h" ]; then
         usage_5h_int=${usage_5h%%.*}; usage_5h_int=${usage_5h_int:-0}
         usage_5h_color=$(get_level_color "$usage_5h_int")
         reset_5h_time=$(format_reset_time "$usage_5h_reset" "hourly")
-        printf " ${AMBER}▰${RESET} ${SLATE_400}5H:${RESET}${usage_5h_color}%s%%%%${RESET}" "$usage_5h_int"
-        [ -n "$reset_5h_time" ] && printf " ${SLATE_500}↻%s${RESET}" "$reset_5h_time"
+        line2+=" ${AMBER}▰${RESET} ${SLATE_400}5H:${RESET}${usage_5h_color}${usage_5h_int}%${RESET}"
+        [ -n "$reset_5h_time" ] && line2+=" ${SLATE_500}↻${reset_5h_time}${RESET}"
         has_prev=true
     fi
-
-    # 7-day limit
     if [ -n "$usage_7d" ]; then
         usage_7d_int=${usage_7d%%.*}; usage_7d_int=${usage_7d_int:-0}
         usage_7d_color=$(get_level_color "$usage_7d_int")
         reset_7d_time=$(format_reset_time "$usage_7d_reset" "weekly")
-        printf " ${SLATE_600}│${RESET} ${SLATE_400}WK:${RESET}${usage_7d_color}%s%%%%${RESET}" "$usage_7d_int"
-        [ -n "$reset_7d_time" ] && printf " ${SLATE_500}↻%s${RESET}" "$reset_7d_time"
+        line2+=" ${SLATE_600}│${RESET} ${SLATE_400}WK:${RESET}${usage_7d_color}${usage_7d_int}%${RESET}"
+        [ -n "$reset_7d_time" ] && line2+=" ${SLATE_500}↻${reset_7d_time}${RESET}"
         has_prev=true
     fi
 else
-    # Rate limits not yet loaded — show placeholder so layout isn't jarring
-    printf " ${AMBER}▰${RESET} ${SLATE_500}5H:-- │ WK:--${RESET}"
+    line2+=" ${AMBER}▰${RESET} ${SLATE_500}5H:-- │ WK:--${RESET}"
     has_prev=true
 fi
 
 if [ -n "$session_cost_str" ]; then
-    [ "$has_prev" = "true" ] && printf " ${SLATE_600}│${RESET}"
-    printf " ${SLATE_500}%s${RESET}" "$session_cost_str"
+    [ "$has_prev" = "true" ] && line2+=" ${SLATE_600}│${RESET}"
+    line2+=" ${SLATE_500}${session_cost_str}${RESET}"
     has_prev=true
 fi
 
 if [ -n "$duration_str" ]; then
-    [ "$has_prev" = "true" ] && printf " ${SLATE_600}│${RESET}"
-    printf " ${SLATE_500}%s${RESET}" "$duration_str"
-    has_prev=true
+    [ "$has_prev" = "true" ] && line2+=" ${SLATE_600}│${RESET}"
+    line2+=" ${SLATE_500}${duration_str}${RESET}"
 fi
 
-printf " ${SLATE_600}──${RESET} ${GIT_ICON}◈${RESET} ${SLATE_400}CC ${BLUE}%s${RESET}\n" "$cc_version"
+printf '%s\n' "$line2"
+
+# ─── Measure line 2 visible width (for line 3 rectangle alignment) ─────────
+
+visual_width() {
+    local stripped
+    stripped=$(printf '%s' "$1" | sed 's/\x1b\[[0-9;]*m//g')
+    printf '%s' "$stripped" | LC_ALL=en_US.UTF-8 wc -m | tr -d ' '
+}
+
+target_width=$(visual_width "$line2")
+
+# ─── Line 3: Model · session_name (truncated) ◈ CC version ─────────────────
+
+line3_prefix_plain="── ${model_short}"
+[ -n "$session_name" ] && line3_prefix_plain="${line3_prefix_plain} · "
+line3_suffix_plain=" ◈ CC ${cc_version}"
+
+prefix_w=$(visual_width "$line3_prefix_plain")
+suffix_w=$(visual_width "$line3_suffix_plain")
+
+avail=$((target_width - prefix_w - suffix_w))
+[ "$avail" -lt 5 ] && avail=5
+
+truncated="$session_name"
+if [ -n "$session_name" ]; then
+    sname_len=$(printf '%s' "$session_name" | LC_ALL=en_US.UTF-8 wc -m | tr -d ' ')
+    if [ "$sname_len" -gt "$avail" ]; then
+        truncated=$(printf '%s' "$session_name" | LC_ALL=en_US.UTF-8 cut -c1-$((avail - 1)))…
+    fi
+fi
+
+printf "${SLATE_600}──${RESET} ${CTX_ACCENT}%s${RESET}" "$model_short"
+if [ -n "$session_name" ]; then
+    printf " ${SLATE_600}·${RESET} ${SLATE_400}%s${RESET}" "$truncated"
+fi
+printf " ${GIT_ICON}◈${RESET} ${SLATE_400}CC ${BLUE}%s${RESET}\n" "$cc_version"
